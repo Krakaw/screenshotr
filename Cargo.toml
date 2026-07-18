@@ -1,0 +1,12 @@
+[package]
+name = "screenshotr"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+env_logger = "0.11.11"
+jpeg-encoder = "0.7.0"
+log = "0.4.33"
+screencapturekit = { version = "8", features = ["macos_14_0"] }
+subtle = "2.6.1"
+tiny_http = "0.12.0"

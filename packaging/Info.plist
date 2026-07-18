@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.keithsimon.screenshotr</string>
+    <key>CFBundleName</key>
+    <string>ScreenshotR</string>
+    <key>CFBundleDisplayName</key>
+    <string>ScreenshotR</string>
+    <key>CFBundleExecutable</key>
+    <string>screenshotr</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+
+    <!-- Deliberately absent:
+         - NSScreenCaptureUsageDescription: not a real TCC key. The Screen
+           Recording prompt is system-generated and takes no purpose string.
+         - Entitlements: this app is unsandboxed, and no screen-capture
+           entitlement exists (Chrome, Zoom and RustDesk all ship none). -->
+</dict>
+</plist>

@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>screenshotr</title>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --surface: #16191e;
+    --surface-2: #1d2127;
+    --border: #2a2f37;
+    --text: #e6e9ee;
+    --muted: #8b94a3;
+    --accent: #4f9dff;
+    --accent-hover: #6cb0ff;
+    --danger: #ff6b6b;
+    --ok: #4ade80;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+  header h1 .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  header h1 .dot.ok { background: var(--ok); }
+  header h1 .dot.bad { background: var(--danger); }
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  .link-btn:hover { color: var(--text); background: var(--surface-2); }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  /* Token gate */
+  #gate { max-width: 460px; margin: 8vh auto 0; }
+  #gate h2 { margin: 0 0 6px; font-size: 18px; }
+  #gate p { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    padding: 11px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button.primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--accent);
+    color: #06121f;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 18px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.primary:disabled { opacity: 0.55; cursor: default; }
+  #gate button { width: 100%; margin-top: 16px; }
+
+  /* Capture controls */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .quality {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .quality input[type="range"] { accent-color: var(--accent); width: 140px; }
+  .quality output {
+    color: var(--text);
+    font-family: ui-monospace, Menlo, monospace;
+    min-width: 26px;
+    text-align: right;
+  }
+  .meta {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 13px;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .status {
+    min-height: 20px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--muted); }
+  .viewer {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .viewer img {
+    max-width: 100%;
+    max-height: 78vh;
+    display: block;
+    cursor: zoom-in;
+  }
+  .viewer .placeholder {
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    padding: 40px;
+  }
+  .viewer.loading::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(13,15,18,0.55);
+  }
+  .spinner {
+    position: absolute;
+    width: 28px; height: 28px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    z-index: 1;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  a.download {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  a.download:hover { color: var(--accent-hover); }
+
+  /* Full-viewport zoom/pan modal */
+  .modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(6, 8, 11, 0.92);
+    overflow: hidden;
+    touch-action: none;
+    cursor: grab;
+  }
+  .modal.panning { cursor: grabbing; }
+  .modal img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    max-width: none;
+    max-height: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+  }
+  .modal-bar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    left: 16px;
+    z-index: 101;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .modal-hint {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    background: rgba(13, 15, 18, 0.7);
+    padding: 6px 10px;
+    border-radius: 6px;
+    pointer-events: none;
+  }
+  .modal-actions { display: flex; gap: 8px; pointer-events: auto; }
+  .modal-btn {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(29, 33, 39, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+  .modal-btn:hover { background: var(--surface-2); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="statusDot"></span>screenshotr</h1>
+  <button class="link-btn hidden" id="clearToken">Forget token</button>
+</header>
+
+<main>
+  <!-- Token gate -->
+  <section id="gate" class="card">
+    <h2>Enter API token</h2>
+    <p>The token is stored in this browser so you only enter it once. Find it on
+       the host at <code>~/.config/screenshotr/token</code>.</p>
+    <form id="tokenForm">
+      <label for="tokenInput">Bearer token</label>
+      <input type="password" id="tokenInput" autocomplete="off" spellcheck="false"
+             placeholder="paste token…">
+      <button type="submit" class="primary">Save &amp; continue</button>
+    </form>
+    <div class="status err" id="gateStatus"></div>
+  </section>
+
+  <!-- Capture view -->
+  <section id="app" class="card hidden">
+    <div class="controls">
+      <button class="primary" id="captureBtn">
+        <span id="captureLabel">Take screenshot</span>
+      </button>
+      <div class="quality">
+        <label for="quality" style="margin:0">Quality</label>
+        <input type="range" id="quality" min="1" max="100" value="85">
+        <output id="qualityOut">85</output>
+      </div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="viewer" id="viewer">
+      <div class="placeholder" id="placeholder">Click “Take screenshot” to capture the active display.</div>
+      <div class="spinner hidden" id="spinner"></div>
+      <img id="shot" class="hidden" alt="screenshot">
+    </div>
+    <div style="margin-top:14px">
+      <a class="download hidden" id="download" download>Download JPEG</a>
+    </div>
+  </section>
+</main>
+
+<!-- Full-viewport zoom/pan modal -->
+<div class="modal hidden" id="modal" aria-hidden="true">
+  <div class="modal-bar">
+    <span class="modal-hint" id="modalHint">scroll to zoom · drag to pan</span>
+    <div class="modal-actions">
+      <button class="modal-btn" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+      <button class="modal-btn" id="zoomReset" title="Fit to screen" aria-label="Fit to screen">⤢</button>
+      <button class="modal-btn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+      <button class="modal-btn" id="modalClose" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+  </div>
+  <img id="modalImg" alt="screenshot (zoomable)" draggable="false">
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "screenshotr.token";
+  var token = localStorage.getItem(KEY) || "";
+  var currentUrl = null; // active object URL, revoked before replacement
+
+  var el = function (id) { return document.getElementById(id); };
+  var gate = el("gate"), app = el("app");
+
+  function showApp() {
+    gate.classList.add("hidden");
+    app.classList.remove("hidden");
+    el("clearToken").classList.remove("hidden");
+    refreshHealth();
+  }
+  function showGate(msg) {
+    app.classList.add("hidden");
+    gate.classList.remove("hidden");
+    el("clearToken").classList.add("hidden");
+    el("gateStatus").textContent = msg || "";
+    el("tokenInput").focus();
+  }
+
+  // --- token gate ---
+  el("tokenForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = el("tokenInput").value.trim();
+    if (!t) { el("gateStatus").textContent = "Token cannot be empty."; return; }
+    token = t;
+    localStorage.setItem(KEY, token);
+    el("tokenInput").value = "";
+    showApp();
+  });
+
+  el("clearToken").addEventListener("click", function () {
+    localStorage.removeItem(KEY);
+    token = "";
+    showGate("Token forgotten.");
+  });
+
+  // --- quality slider ---
+  var quality = el("quality"), qualityOut = el("qualityOut");
+  quality.addEventListener("input", function () { qualityOut.textContent = quality.value; });
+
+  // --- health indicator ---
+  function refreshHealth() {
+    fetch("/healthz").then(function (r) { return r.json(); }).then(function (h) {
+      var dot = el("statusDot");
+      dot.className = "dot " + (h.screen_recording ? "ok" : "bad");
+      dot.title = h.screen_recording
+        ? "screen recording granted · display " + h.active_display
+        : "screen recording NOT granted";
+    }).catch(function () {});
+  }
+
+  // --- capture ---
+  var busy = false;
+  el("captureBtn").addEventListener("click", capture);
+
+  function setBusy(on) {
+    busy = on;
+    el("captureBtn").disabled = on;
+    el("captureLabel").textContent = on ? "Capturing…" : "Take screenshot";
+    el("spinner").classList.toggle("hidden", !on);
+    el("viewer").classList.toggle("loading", on);
+  }
+
+  function setStatus(msg, kind) {
+    var s = el("status");
+    s.textContent = msg || "";
+    s.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function capture() {
+    if (busy) return;
+    setBusy(true);
+    setStatus("");
+    var started = performance.now();
+
+    fetch("/screenshot?quality=" + encodeURIComponent(quality.value), {
+      headers: { "Authorization": "Bearer " + token }
+    }).then(function (res) {
+      if (res.status === 401) {
+        var err = new Error("unauthorized");
+        err.code = 401;
+        throw err;
+      }
+      if (res.status === 503) {
+        var e2 = new Error("Screen Recording permission not granted on the host.");
+        e2.code = 503;
+        throw e2;
+      }
+      if (!res.ok) { throw new Error("Capture failed (HTTP " + res.status + ")."); }
+      return res.blob();
+    }).then(function (blob) {
+      var elapsed = Math.round(performance.now() - started);
+      if (currentUrl) { URL.revokeObjectURL(currentUrl); }
+      currentUrl = URL.createObjectURL(blob);
+
+      var img = el("shot");
+      img.onload = function () {
+        el("meta").textContent =
+          img.naturalWidth + "×" + img.naturalHeight + " · " +
+          (blob.size / 1024).toFixed(0) + " KB · " + elapsed + " ms";
+      };
+      img.src = currentUrl;
+      img.classList.remove("hidden");
+      el("placeholder").classList.add("hidden");
+
+      var dl = el("download");
+      dl.href = currentUrl;
+      dl.download = "screenshot-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+      dl.classList.remove("hidden");
+
+      setStatus("Captured the active display.", "ok");
+      refreshHealth();
+    }).catch(function (err) {
+      if (err.code === 401) {
+        localStorage.removeItem(KEY);
+        token = "";
+        showGate("That token was rejected. Please re-enter it.");
+      } else {
+        if (err.code === 503) {
+          var dot = el("statusDot");
+          dot.className = "dot bad";
+          dot.title = "screen recording unavailable on the host";
+        }
+        setStatus(err.message || "Something went wrong.", "err");
+      }
+    }).finally(function () {
+      setBusy(false);
+    });
+  }
+
+  // --- zoom/pan modal ---
+  var modal = el("modal"), modalImg = el("modalImg");
+  var scale = 1, tx = 0, ty = 0;      // current transform
+  var fitScale = 1;                    // scale that fits the image to the viewport
+  var MAX_SCALE = 8;
+
+  function applyTransform() {
+    modalImg.style.transform =
+      "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+  }
+
+  // Fit the natural-size image into the viewport and centre it.
+  function fitToViewport() {
+    var iw = modalImg.naturalWidth, ih = modalImg.naturalHeight;
+    if (!iw || !ih) return;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    fitScale = Math.min(vw / iw, vh / ih);
+    scale = fitScale;
+    tx = (vw - iw * scale) / 2;
+    ty = (vh - ih * scale) / 2;
+    applyTransform();
+  }
+
+  function clampScale(s) {
+    // Never shrink below the fit scale; never blow past MAX_SCALE.
+    return Math.max(fitScale, Math.min(MAX_SCALE, s));
+  }
+
+  // Zoom by `factor`, keeping the point (cx,cy) in viewport space fixed.
+  function zoomAt(cx, cy, factor) {
+    var next = clampScale(scale * factor);
+    if (next === scale) return;
+    var ratio = next / scale;
+    tx = cx - (cx - tx) * ratio;
+    ty = cy - (cy - ty) * ratio;
+    scale = next;
+    applyTransform();
+  }
+
+  function openModal() {
+    if (!currentUrl) return;
+    modalImg.src = currentUrl;
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    if (modalImg.complete && modalImg.naturalWidth) {
+      fitToViewport();
+    } else {
+      modalImg.onload = fitToViewport;
+    }
+  }
+
+  function closeModal() {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    modalImg.removeAttribute("src");
+  }
+
+  el("shot").addEventListener("click", openModal);
+  el("modalClose").addEventListener("click", closeModal);
+
+  // Click the backdrop (but not the image) to dismiss.
+  modal.addEventListener("mousedown", function (e) {
+    if (e.target === modal) closeModal();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (modal.classList.contains("hidden")) return;
+    if (e.key === "Escape") { closeModal(); }
+    else if (e.key === "+" || e.key === "=") { zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2); }
+    else if (e.key === "-" || e.key === "_") { zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.2); }
+    else if (e.key === "0") { fitToViewport(); }
+  });
+
+  el("zoomIn").addEventListener("click", function () {
+    zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25);
+  });
+  el("zoomOut").addEventListener("click", function () {
+    zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.25);
+  });
+  el("zoomReset").addEventListener("click", fitToViewport);
+
+  modal.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    // Trackpad pinch arrives as wheel+ctrlKey; both it and a mouse wheel zoom.
+    var factor = Math.exp(-e.deltaY * 0.002);
+    zoomAt(e.clientX, e.clientY, factor);
+  }, { passive: false });
+
+  // Drag to pan.
+  var dragging = false, lastX = 0, lastY = 0;
+  modal.addEventListener("mousedown", function (e) {
+    if (e.target !== modalImg) return;
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    modal.classList.add("panning");
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", function (e) {
+    if (!dragging) return;
+    tx += e.clientX - lastX;
+    ty += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    applyTransform();
+  });
+  window.addEventListener("mouseup", function () {
+    dragging = false;
+    modal.classList.remove("panning");
+  });
+
+  // Keep the image fitted if the window is resized while open.
+  window.addEventListener("resize", function () {
+    if (!modal.classList.contains("hidden")) fitToViewport();
+  });
+
+  // --- boot ---
+  if (token) { showApp(); } else { showGate(); }
+})();
+</script>
+</body>
+</html>

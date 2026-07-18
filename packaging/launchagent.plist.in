@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>@BUNDLE_ID@</string>
+
+    <!-- Points at the binary inside the bundle, not `open -a`. TCC identity
+         comes from the embedded signature, which seals Info.plist, so direct
+         exec keeps bundle identity; `open -a` would additionally detach the
+         process from launchd and break KeepAlive. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>@APP_PATH@/Contents/MacOS/screenshotr</string>
+    </array>
+
+    <!-- Makes System Settings > Login Items attribute this to the app. -->
+    <key>AssociatedBundleIdentifiers</key>
+    <string>@BUNDLE_ID@</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <!-- Paces the exit-and-restart loop the permission gate relies on. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Capturing the screen requires a GUI session. -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- The token file path, never the token itself: this plist is
+             world-readable and any local process could read the value. -->
+        <key>SCREENSHOTR_TOKEN_FILE</key>
+        <string>@HOME@/.config/screenshotr/token</string>
+        <key>SCREENSHOTR_BIND</key>
+        <string>0.0.0.0:8765</string>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>@HOME@/Library/Logs/screenshotr.log</string>
+    <key>StandardErrorPath</key>
+    <string>@HOME@/Library/Logs/screenshotr.err.log</string>
+</dict>
+</plist>

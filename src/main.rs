@@ -14,6 +14,10 @@ const DEFAULT_QUALITY: u8 = 85;
 /// The browser UI, embedded at compile time so the binary stays self-contained.
 const INDEX_HTML: &str = include_str!("index.html");
 
+/// Shared by every endpoint that touches ScreenCaptureKit, so a revoked grant
+/// reads the same whether the client was capturing or enumerating.
+const PERMISSION_DENIED_JSON: &str = r#"{"error":"screen recording permission not granted","hint":"System Settings > Privacy & Security > Screen Recording"}"#;
+
 /// Captures are serialised: concurrent ScreenCaptureKit calls buy nothing for
 /// a request-driven service and keep the FFI boundary single-threaded.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
@@ -98,6 +102,14 @@ fn handle(request: Request, token: &str) {
                 sys::display_under_cursor()
             ),
         ),
+        "/displays" => {
+            if !authorized(&request, token) {
+                log::warn!("unauthorized request from {:?}", request.remote_addr());
+                respond_json(request, 401, r#"{"error":"unauthorized"}"#);
+                return;
+            }
+            displays(request);
+        }
         "/screenshot" => {
             if !authorized(&request, token) {
                 log::warn!("unauthorized request from {:?}", request.remote_addr());
@@ -129,22 +141,73 @@ fn authorized(request: &Request, token: &str) -> bool {
     presented.as_bytes().ct_eq(token.as_bytes()).into()
 }
 
+/// List the attached displays so a client can offer a picker.
+fn displays(request: Request) {
+    let listed = {
+        let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        capture::list_displays()
+    };
+
+    let displays = match listed {
+        Ok(d) => d,
+        Err(capture::CaptureError::PermissionDenied) => {
+            respond_json(request, 503, PERMISSION_DENIED_JSON);
+            return;
+        }
+        Err(e) => {
+            log::error!("listing displays failed: {e}");
+            respond_json(request, 500, r#"{"error":"could not list displays"}"#);
+            return;
+        }
+    };
+
+    let items = displays
+        .iter()
+        .map(|d| {
+            format!(
+                r#"{{"id":{},"width":{},"height":{},"x":{},"y":{},"active":{}}}"#,
+                d.id, d.width, d.height, d.x, d.y, d.active
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    respond_json(request, 200, &format!(r#"{{"displays":[{items}]}}"#));
+}
+
 fn screenshot(request: Request, url: &str) {
     let quality = parse_quality(url);
+    let target = match parse_target(url) {
+        Ok(t) => t,
+        Err(raw) => {
+            log::warn!("rejected display selector {raw:?}");
+            respond_json(
+                request,
+                400,
+                r#"{"error":"invalid display selector","hint":"use display=all, display=active, or a numeric display id from /displays"}"#,
+            );
+            return;
+        }
+    };
 
     let result = {
         let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        capture::capture_active_display()
+        capture::capture(target)
     };
 
     let frame = match result {
         Ok(f) => f,
         Err(capture::CaptureError::PermissionDenied) => {
             log::error!("capture failed: screen recording permission revoked");
+            respond_json(request, 503, PERMISSION_DENIED_JSON);
+            return;
+        }
+        Err(e @ capture::CaptureError::NoSuchDisplay(_)) => {
+            log::warn!("capture failed: {e}");
             respond_json(
                 request,
-                503,
-                r#"{"error":"screen recording permission not granted","hint":"System Settings > Privacy & Security > Screen Recording"}"#,
+                404,
+                r#"{"error":"no such display","hint":"call /displays for the current list"}"#,
             );
             return;
         }
@@ -175,14 +238,36 @@ fn screenshot(request: Request, url: &str) {
     }
 }
 
-fn parse_quality(url: &str) -> u8 {
+/// First value for `key` in the URL's query string, if present.
+fn query_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
     url.split_once('?')
         .map(|(_, qs)| qs)
         .into_iter()
         .flat_map(|qs| qs.split('&'))
-        .find_map(|pair| pair.strip_prefix("quality="))
+        .find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            (k == key).then_some(v)
+        })
+}
+
+fn parse_quality(url: &str) -> u8 {
+    query_param(url, "quality")
         .and_then(|v| v.parse::<u8>().ok())
         .map_or(DEFAULT_QUALITY, |q| q.clamp(1, 100))
+}
+
+/// Resolve `?display=` into a capture target.
+///
+/// Absent means the active display, so callers written before multi-display
+/// support keep the behaviour they had. An unparseable value is an error
+/// rather than a silent fallback: quietly capturing the wrong screen and
+/// returning 200 is worse than a 400.
+fn parse_target(url: &str) -> Result<capture::Target, &str> {
+    match query_param(url, "display") {
+        None | Some("") | Some("active") => Ok(capture::Target::Active),
+        Some("all") => Ok(capture::Target::All),
+        Some(raw) => raw.parse().map(capture::Target::Id).map_err(|_| raw),
+    }
 }
 
 fn respond_html(request: Request, body: &str) {

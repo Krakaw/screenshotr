@@ -7,8 +7,10 @@ Runs as a signed, headless `.app` bundle started at login by a LaunchAgent.
 Capture goes through ScreenCaptureKit — `CGDisplayCreateImage` is obsoleted in
 macOS 15+ and will not compile against a current SDK.
 
-- **Browser UI** at `http://<host>:8765/` — enter the token once, click to
-  capture, view the shot inline, and open it full-screen to zoom and pan.
+- **Browser UI** at `http://<host>:8765/` — enter the token once, pick a
+  display, capture, view the shot inline, and open it full-screen to zoom and pan.
+- **Multi-display** — capture the display under the cursor, a specific monitor,
+  or all of them tiled into a single image.
 - **HTTP API** — `GET /screenshot` returns raw `image/jpeg` for scripting.
 
 ## Requirements
@@ -81,9 +83,14 @@ build step, nothing to host separately.
   stores it in the browser's `localStorage`, so you don't paste it again. A
   rejected token (`401`) clears the stored value and re-prompts; **Forget token**
   in the header clears it on demand.
-- **Capture.** Click **Take screenshot** to grab the display under the cursor.
-  A quality slider (1–100) controls JPEG compression. The result renders inline
-  with its dimensions, size, and capture time.
+- **Capture.** Click **Take screenshot** to grab a display. A quality slider
+  (1–100) controls JPEG compression. The result renders inline with its
+  dimensions, size, and capture time.
+- **Display picker.** Choose the active display (follows the cursor), a
+  specific monitor by name and resolution, or **All displays** to get every
+  screen in one image. The list refreshes on load and whenever a capture
+  reports that the chosen display has been unplugged. The **All displays**
+  option only appears when more than one monitor is attached.
 - **Full-screen zoom & pan.** Click the screenshot to open it in a
   full-viewport modal. Scroll (or trackpad-pinch) to zoom toward the pointer,
   drag to pan, and use the toolbar (`+` / `−` / fit) or keys (`+`, `-`, `0`,
@@ -104,6 +111,16 @@ TOKEN=$(cat ~/.config/screenshotr/token)
 curl -H "Authorization: Bearer $TOKEN" \
      "http://localhost:8765/screenshot?quality=85" -o shot.jpg
 
+# List the attached displays, then capture one by id
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8765/displays
+# {"displays":[{"id":1,"width":4112,"height":2658,"x":0,"y":0,"active":true}]}
+curl -H "Authorization: Bearer $TOKEN" \
+     "http://localhost:8765/screenshot?display=1" -o shot.jpg
+
+# Every display, tiled into one image
+curl -H "Authorization: Bearer $TOKEN" \
+     "http://localhost:8765/screenshot?display=all" -o all.jpg
+
 # Health / diagnostics (no auth)
 curl -s http://localhost:8765/healthz
 # {"status":"ok","version":"0.1.0","screen_recording":true,"active_display":1}
@@ -112,12 +129,30 @@ curl -s http://localhost:8765/healthz
 | Endpoint | Auth | Response |
 |---|---|---|
 | `GET /` | none | `200` `text/html` — the browser UI (token is entered in-page) |
-| `GET /screenshot?quality=<1-100>` | Bearer token | `200` `image/jpeg`, native resolution. `quality` defaults to 85. |
+| `GET /displays` | Bearer token | `200` JSON: each attached display's id, native pixel size, arrangement position, and whether it's the active one. Ordered left-to-right. |
+| `GET /screenshot?quality=<1-100>&display=<sel>` | Bearer token | `200` `image/jpeg`, native resolution. `quality` defaults to 85. |
 | `GET /healthz` | none | `200` JSON: version, permission status, active display ID |
+
+`display` selects what to capture:
+
+| Value | Captures |
+|---|---|
+| omitted, or `active` | The display under the cursor — the behaviour before multi-display support, so existing callers are unaffected. |
+| `<id>` | That display, by an id from `/displays`. `404` if it is no longer attached. |
+| `all` | Every display, tiled left-to-right in arrangement order and top-aligned, at native resolution. |
+
+Tiles in an `all` capture keep their native resolution rather than sitting at
+their true global coordinates. Displays with different backing scales share no
+common pixel grid, so honouring the real geometry would mean resampling every
+tile — and a stacked or offset arrangement would leave most of a large canvas
+empty. Adjacency is preserved; exact geometry is not. Shorter tiles are padded
+below with a flat grey gutter.
 
 Status codes are distinct so a caller can tell failures apart:
 
+- `400` — unparseable `display` selector
 - `401` — missing or bad token
+- `404` — `display=<id>` named a display that is not attached
 - `503` — Screen Recording permission not granted (JSON body names the fix)
 - `500` — capture or encode failure
 

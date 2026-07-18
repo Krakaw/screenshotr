@@ -118,15 +118,27 @@
     flex-wrap: wrap;
     margin-bottom: 20px;
   }
-  .quality {
+  .field {
     display: flex;
     align-items: center;
     gap: 10px;
     color: var(--muted);
     font-size: 13px;
   }
-  .quality input[type="range"] { accent-color: var(--accent); width: 140px; }
-  .quality output {
+  .field input[type="range"] { accent-color: var(--accent); width: 140px; }
+  select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    cursor: pointer;
+    max-width: 260px;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  .field output {
     color: var(--text);
     font-family: ui-monospace, Menlo, monospace;
     min-width: 26px;
@@ -282,7 +294,13 @@
       <button class="primary" id="captureBtn">
         <span id="captureLabel">Take screenshot</span>
       </button>
-      <div class="quality">
+      <div class="field">
+        <label for="display" style="margin:0">Display</label>
+        <select id="display">
+          <option value="active">Active display</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="quality" style="margin:0">Quality</label>
         <input type="range" id="quality" min="1" max="100" value="85">
         <output id="qualityOut">85</output>
@@ -291,7 +309,7 @@
     </div>
     <div class="status" id="status"></div>
     <div class="viewer" id="viewer">
-      <div class="placeholder" id="placeholder">Click “Take screenshot” to capture the active display.</div>
+      <div class="placeholder" id="placeholder">Pick a display and click “Take screenshot”.</div>
       <div class="spinner hidden" id="spinner"></div>
       <img id="shot" class="hidden" alt="screenshot">
     </div>
@@ -330,6 +348,7 @@
     app.classList.remove("hidden");
     el("clearToken").classList.remove("hidden");
     refreshHealth();
+    refreshDisplays();
   }
   function showGate(msg) {
     app.classList.add("hidden");
@@ -360,6 +379,52 @@
   var quality = el("quality"), qualityOut = el("qualityOut");
   quality.addEventListener("input", function () { qualityOut.textContent = quality.value; });
 
+  // --- display picker ---
+  var display = el("display");
+
+  function refreshDisplays() {
+    // Preserve the current pick across refreshes: display ids are stable while
+    // a monitor stays attached, so re-selecting one is not surprising.
+    var previous = display.value;
+
+    fetch("/displays", { headers: { "Authorization": "Bearer " + token } })
+      .then(function (res) {
+        if (!res.ok) { throw new Error("HTTP " + res.status); }
+        return res.json();
+      })
+      .then(function (data) {
+        var list = data.displays || [];
+        display.textContent = "";
+
+        display.appendChild(option("active", "Active display (follows cursor)"));
+        if (list.length > 1) {
+          display.appendChild(option("all", "All displays (" + list.length + ")"));
+        }
+        list.forEach(function (d, i) {
+          var label = "Display " + (i + 1) + " — " + d.width + "×" + d.height +
+                      (d.active ? " · active" : "");
+          display.appendChild(option(String(d.id), label));
+        });
+
+        // Only restore the old pick if that option still exists; a monitor may
+        // have been unplugged since the last refresh.
+        if (previous && display.querySelector('option[value="' + previous + '"]')) {
+          display.value = previous;
+        }
+      })
+      .catch(function () {
+        // A picker that cannot be populated still captures the active display,
+        // which is the pre-multi-display behaviour. Leave the default in place.
+      });
+  }
+
+  function option(value, label) {
+    var o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    return o;
+  }
+
   // --- health indicator ---
   function refreshHealth() {
     fetch("/healthz").then(function (r) { return r.json(); }).then(function (h) {
@@ -389,13 +454,24 @@
     s.className = "status" + (kind ? " " + kind : "");
   }
 
+  // Human-readable name for a selector, for the status line and filename.
+  function describe(selected) {
+    if (selected === "all") return "all displays";
+    if (selected === "active") return "the active display";
+    var opt = display.querySelector('option[value="' + selected + '"]');
+    return opt ? opt.textContent.split(" — ")[0].toLowerCase() : "display " + selected;
+  }
+
   function capture() {
     if (busy) return;
     setBusy(true);
     setStatus("");
     var started = performance.now();
 
-    fetch("/screenshot?quality=" + encodeURIComponent(quality.value), {
+    var selected = display.value || "active";
+
+    fetch("/screenshot?quality=" + encodeURIComponent(quality.value) +
+          "&display=" + encodeURIComponent(selected), {
       headers: { "Authorization": "Bearer " + token }
     }).then(function (res) {
       if (res.status === 401) {
@@ -407,6 +483,11 @@
         var e2 = new Error("Screen Recording permission not granted on the host.");
         e2.code = 503;
         throw e2;
+      }
+      if (res.status === 404) {
+        var e3 = new Error("That display is no longer attached. Refreshing the list…");
+        e3.code = 404;
+        throw e3;
       }
       if (!res.ok) { throw new Error("Capture failed (HTTP " + res.status + ")."); }
       return res.blob();
@@ -430,7 +511,7 @@
       dl.download = "screenshot-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
       dl.classList.remove("hidden");
 
-      setStatus("Captured the active display.", "ok");
+      setStatus("Captured " + describe(selected) + ".", "ok");
       refreshHealth();
     }).catch(function (err) {
       if (err.code === 401) {
@@ -443,6 +524,7 @@
           dot.className = "dot bad";
           dot.title = "screen recording unavailable on the host";
         }
+        if (err.code === 404) { refreshDisplays(); }
         setStatus(err.message || "Something went wrong.", "err");
       }
     }).finally(function () {

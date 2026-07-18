@@ -211,6 +211,19 @@ fn screenshot(request: Request, url: &str) {
             );
             return;
         }
+        // Deterministic limits on what the request asked for, not transient
+        // failures: a caller that retries will get the same answer, so say so
+        // distinctly rather than hiding them in a generic 500.
+        Err(e @ (capture::CaptureError::FrameTooLarge { .. }
+        | capture::CaptureError::OutOfMemory { .. })) => {
+            log::error!("capture failed: {e}");
+            respond_json(
+                request,
+                413,
+                r#"{"error":"capture too large","hint":"capture a single display instead of display=all"}"#,
+            );
+            return;
+        }
         Err(e) => {
             log::error!("capture failed: {e}");
             respond_json(request, 500, r#"{"error":"capture failed"}"#);

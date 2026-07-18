@@ -153,6 +153,8 @@ Status codes are distinct so a caller can tell failures apart:
 - `400` — unparseable `display` selector
 - `401` — missing or bad token
 - `404` — `display=<id>` named a display that is not attached
+- `413` — the frame exceeds the maximum encodable size, or its canvas could not
+  be allocated. Deterministic: retrying an identical request gets the same answer.
 - `503` — Screen Recording permission not granted (JSON body names the fix)
 - `500` — capture or encode failure
 

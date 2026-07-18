@@ -46,9 +46,13 @@ pub enum CaptureError {
     PermissionDenied,
     /// A `display=<id>` request named a display that is not attached.
     NoSuchDisplay(CGDirectDisplayID),
-    /// The composite of every display would exceed the dimensions a JPEG
-    /// frame can describe.
-    CompositeTooLarge { width: u64, height: u64 },
+    /// A frame — one display, or the composite of several — exceeds the
+    /// dimensions a JPEG frame can describe.
+    FrameTooLarge { width: u64, height: u64 },
+    /// The canvas for a composite could not be allocated. Reported rather than
+    /// aborting: `display=all` is client-driven, so a request asking for more
+    /// memory than is available must not take the whole service down with it.
+    OutOfMemory { bytes: usize },
     Sck(SCError),
 }
 
@@ -57,8 +61,11 @@ impl std::fmt::Display for CaptureError {
         match self {
             Self::PermissionDenied => write!(f, "screen recording permission denied"),
             Self::NoSuchDisplay(id) => write!(f, "no display with id {id}"),
-            Self::CompositeTooLarge { width, height } => {
-                write!(f, "composite {width}x{height} exceeds the maximum frame size")
+            Self::FrameTooLarge { width, height } => {
+                write!(f, "frame {width}x{height} exceeds the maximum frame size")
+            }
+            Self::OutOfMemory { bytes } => {
+                write!(f, "could not allocate {bytes} bytes for the composite")
             }
             Self::Sck(e) => write!(f, "screencapturekit error: {e:?}"),
         }
@@ -169,6 +176,17 @@ fn native_size(display: &SCDisplay) -> (u32, u32) {
 fn capture_one(display: &SCDisplay) -> Result<Frame, CaptureError> {
     let (width, height) = native_size(display);
 
+    // Frame dimensions are u16, so a display wider or taller than that would
+    // be silently truncated into a Frame whose metadata disagrees with its
+    // buffer. No such hardware exists today, but truncating is the kind of
+    // failure that surfaces as a corrupt image rather than an error.
+    if width > u32::from(u16::MAX) || height > u32::from(u16::MAX) {
+        return Err(CaptureError::FrameTooLarge {
+            width: u64::from(width),
+            height: u64::from(height),
+        });
+    }
+
     log::debug!(
         "capturing display {} ({}x{} px)",
         display.display_id(),
@@ -240,14 +258,26 @@ fn tile_horizontally(tiles: Vec<Frame>) -> Result<Frame, CaptureError> {
     let total_width: u64 = tiles.iter().map(|t| u64::from(t.width)).sum();
     let max_height: u64 = tiles.iter().map(|t| u64::from(t.height)).max().unwrap_or(0);
     if total_width > u64::from(u16::MAX) || max_height > u64::from(u16::MAX) {
-        return Err(CaptureError::CompositeTooLarge {
+        return Err(CaptureError::FrameTooLarge {
             width: total_width,
             height: max_height,
         });
     }
     let (canvas_w, canvas_h) = (total_width as usize, max_height as usize);
 
-    let mut canvas = GUTTER.repeat(canvas_w * canvas_h);
+    // Reserve fallibly. Both dimensions are bounded by u16::MAX above, so the
+    // product cannot overflow usize on a 64-bit target, but it can still be
+    // gigabytes across enough large displays — and an infallible allocation
+    // would abort the process rather than fail this one request.
+    let bytes = canvas_w * canvas_h * 4;
+    let mut canvas: Vec<u8> = Vec::new();
+    canvas
+        .try_reserve_exact(bytes)
+        .map_err(|_| CaptureError::OutOfMemory { bytes })?;
+    canvas.resize(bytes, 0);
+    for pixel in canvas.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&GUTTER);
+    }
 
     let mut x_offset = 0usize;
     for tile in &tiles {
@@ -328,7 +358,7 @@ mod tests {
         let tiles = vec![solid(u16::MAX, 1, 0), solid(u16::MAX, 1, 0)];
         assert!(matches!(
             tile_horizontally(tiles),
-            Err(CaptureError::CompositeTooLarge { .. })
+            Err(CaptureError::FrameTooLarge { .. })
         ));
     }
 }

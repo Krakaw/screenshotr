@@ -644,6 +644,11 @@
     dl.classList.remove("hidden");
 
     setMeta(entry);
+
+    // An open modal must follow the selection, or it keeps showing an object
+    // URL that may since have been evicted and revoked.
+    if (modalOpen()) { loadIntoModal(entry.url); }
+
     shots.forEach(function (s) {
       if (!s.node) { return; }
       s.node.classList.toggle("active", s === entry);
@@ -740,16 +745,25 @@
     applyTransform();
   }
 
-  function openModal() {
-    if (!currentUrl) return;
-    modalImg.src = currentUrl;
-    modal.classList.remove("hidden");
-    modal.setAttribute("aria-hidden", "false");
+  function modalOpen() {
+    return !modal.classList.contains("hidden");
+  }
+
+  // Point the modal at `url` and fit it, whether or not the image is decoded yet.
+  function loadIntoModal(url) {
+    modalImg.src = url;
     if (modalImg.complete && modalImg.naturalWidth) {
       fitToViewport();
     } else {
       modalImg.onload = fitToViewport;
     }
+  }
+
+  function openModal() {
+    if (!currentUrl) return;
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    loadIntoModal(currentUrl);
   }
 
   function closeModal() {

@@ -645,7 +645,9 @@
 
     setMeta(entry);
     shots.forEach(function (s) {
-      if (s.node) { s.node.classList.toggle("active", s === entry); }
+      if (!s.node) { return; }
+      s.node.classList.toggle("active", s === entry);
+      s.node.setAttribute("aria-pressed", s === entry ? "true" : "false");
     });
   }
 
@@ -657,6 +659,11 @@
       btn.type = "button";
       btn.className = "thumb" + (entry === activeShot ? " active" : "");
       btn.title = entry.label + " · " + clockTime(entry.at);
+      // The caption alone would announce as a bare timestamp; name the button
+      // after what it captured, and expose the selected state.
+      btn.setAttribute("aria-label", "Show capture of " + entry.label +
+                       " at " + clockTime(entry.at));
+      btn.setAttribute("aria-pressed", entry === activeShot ? "true" : "false");
 
       var thumb = document.createElement("img");
       thumb.src = entry.url;

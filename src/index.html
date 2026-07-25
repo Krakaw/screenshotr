@@ -205,6 +205,60 @@
   }
   a.download:hover { color: var(--accent-hover); }
 
+  /* Session history strip */
+  .history { margin-top: 20px; }
+  .history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .history-head .count { font-family: ui-monospace, Menlo, monospace; }
+  .thumbs {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .thumbs::-webkit-scrollbar { height: 8px; }
+  .thumbs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .thumb {
+    flex: 0 0 auto;
+    width: 124px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .thumb img {
+    width: 100%;
+    height: 66px;
+    object-fit: cover;
+    display: block;
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .thumb:hover { border-color: var(--accent); color: var(--text); }
+  .thumb.active {
+    border-color: var(--accent);
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
   /* Full-viewport zoom/pan modal */
   .modal {
     position: fixed;
@@ -316,6 +370,13 @@
     <div style="margin-top:14px">
       <a class="download hidden" id="download" download>Download JPEG</a>
     </div>
+    <div class="history hidden" id="history">
+      <div class="history-head">
+        <span>History <span class="count" id="historyCount"></span></span>
+        <button class="link-btn" id="clearHistory">Clear</button>
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+    </div>
   </section>
 </main>
 
@@ -338,7 +399,13 @@
   "use strict";
   var KEY = "screenshotr.token";
   var token = localStorage.getItem(KEY) || "";
-  var currentUrl = null; // active object URL, revoked before replacement
+  var currentUrl = null; // object URL of the shot on screen (used by download + modal)
+
+  // Session-only capture history: object URLs live until evicted or the page
+  // is reloaded, so nothing is persisted across a refresh.
+  var shots = [];
+  var activeShot = null;
+  var MAX_SHOTS = 12;
 
   var el = function (id) { return document.getElementById(id); };
   var gate = el("gate"), app = el("app");
@@ -492,25 +559,7 @@
       if (!res.ok) { throw new Error("Capture failed (HTTP " + res.status + ")."); }
       return res.blob();
     }).then(function (blob) {
-      var elapsed = Math.round(performance.now() - started);
-      if (currentUrl) { URL.revokeObjectURL(currentUrl); }
-      currentUrl = URL.createObjectURL(blob);
-
-      var img = el("shot");
-      img.onload = function () {
-        el("meta").textContent =
-          img.naturalWidth + "×" + img.naturalHeight + " · " +
-          (blob.size / 1024).toFixed(0) + " KB · " + elapsed + " ms";
-      };
-      img.src = currentUrl;
-      img.classList.remove("hidden");
-      el("placeholder").classList.add("hidden");
-
-      var dl = el("download");
-      dl.href = currentUrl;
-      dl.download = "screenshot-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
-      dl.classList.remove("hidden");
-
+      addShot(blob, Math.round(performance.now() - started), describe(selected));
       setStatus("Captured " + describe(selected) + ".", "ok");
       refreshHealth();
     }).catch(function (err) {
@@ -531,6 +580,119 @@
       setBusy(false);
     });
   }
+
+  // --- session history ---
+  function clockTime(d) {
+    return ("0" + d.getHours()).slice(-2) + ":" +
+           ("0" + d.getMinutes()).slice(-2) + ":" +
+           ("0" + d.getSeconds()).slice(-2);
+  }
+
+  function addShot(blob, elapsed, label) {
+    var at = new Date();
+    var entry = {
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+      elapsed: elapsed,
+      at: at,
+      label: label,
+      name: "screenshot-" + at.toISOString().replace(/[:.]/g, "-") + ".jpg",
+      width: 0,
+      height: 0,
+      node: null
+    };
+    shots.unshift(entry);
+    while (shots.length > MAX_SHOTS) { discardShot(shots.pop()); }
+
+    // Dimensions are only known once the JPEG is decoded; fill the meta line in
+    // afterwards if this shot is still the one on screen.
+    var probe = new Image();
+    probe.onload = function () {
+      entry.width = probe.naturalWidth;
+      entry.height = probe.naturalHeight;
+      if (activeShot === entry) { setMeta(entry); }
+    };
+    probe.src = entry.url;
+
+    renderHistory();
+    selectShot(entry);
+  }
+
+  function discardShot(entry) {
+    URL.revokeObjectURL(entry.url);
+    if (activeShot === entry) { activeShot = null; currentUrl = null; }
+  }
+
+  function setMeta(entry) {
+    el("meta").textContent =
+      (entry.width ? entry.width + "×" + entry.height + " · " : "") +
+      (entry.size / 1024).toFixed(0) + " KB · " + entry.elapsed + " ms";
+  }
+
+  function selectShot(entry) {
+    activeShot = entry;
+    currentUrl = entry.url;
+
+    var img = el("shot");
+    img.src = entry.url;
+    img.classList.remove("hidden");
+    el("placeholder").classList.add("hidden");
+
+    var dl = el("download");
+    dl.href = entry.url;
+    dl.download = entry.name;
+    dl.classList.remove("hidden");
+
+    setMeta(entry);
+    shots.forEach(function (s) {
+      if (s.node) { s.node.classList.toggle("active", s === entry); }
+    });
+  }
+
+  function renderHistory() {
+    var row = el("thumbs");
+    row.textContent = "";
+    shots.forEach(function (entry) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "thumb" + (entry === activeShot ? " active" : "");
+      btn.title = entry.label + " · " + clockTime(entry.at);
+
+      var thumb = document.createElement("img");
+      thumb.src = entry.url;
+      thumb.alt = "";
+      var caption = document.createElement("span");
+      caption.textContent = clockTime(entry.at);
+
+      btn.appendChild(thumb);
+      btn.appendChild(caption);
+      btn.addEventListener("click", function () { selectShot(entry); });
+
+      entry.node = btn;
+      row.appendChild(btn);
+    });
+    el("history").classList.toggle("hidden", shots.length === 0);
+    el("historyCount").textContent = shots.length
+      ? "(" + shots.length + "/" + MAX_SHOTS + ")"
+      : "";
+  }
+
+  el("clearHistory").addEventListener("click", function () {
+    closeModal();
+    shots.forEach(function (entry) { URL.revokeObjectURL(entry.url); });
+    shots = [];
+    activeShot = null;
+    currentUrl = null;
+
+    var img = el("shot");
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    el("placeholder").classList.remove("hidden");
+    el("download").classList.add("hidden");
+    el("meta").textContent = "";
+    setStatus("");
+    renderHistory();
+  });
 
   // --- zoom/pan modal ---
   var modal = el("modal"), modalImg = el("modalImg");
